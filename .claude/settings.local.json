@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5174/)",
+      "Bash(start \"\" \"http://localhost:5174/\")",
+      "Bash(rm -f src/components/AIPitacoCard.tsx src/components/HeroHeader.tsx src/components/NextRoleCard.tsx src/components/PeoplePanel.tsx src/components/RoadmapCard.tsx src/components/SectionHeading.tsx src/components/SuggestionCard.tsx src/components/SuggestionComposer.tsx src/data/home.ts src/lib/profiles.ts src/lib/roles.ts src/lib/supabase.ts)",
+      "Bash(rmdir src/data)",
+      "Bash(rm -f src/lib/config.ts src/types/database.ts)",
+      "Bash(ls src/types)",
+      "Bash(rmdir src/types)",
+      "Bash(kill bw62cuxh1 *)"
+    ]
+  }
+}
