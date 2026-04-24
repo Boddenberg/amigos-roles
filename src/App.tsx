@@ -75,6 +75,7 @@ function App() {
   const [suggestPrefill, setSuggestPrefill] = useState<SuggestPrefill | null>(
     null,
   )
+  const [suggestSessionKey, setSuggestSessionKey] = useState(0)
 
   const showToast = useCallback(
     (message: string, variant: 'info' | 'error' = 'info') => {
@@ -119,7 +120,24 @@ function App() {
   function handleLogout() {
     logout()
     setCurrentUser(null)
+    setSuggestPrefill(null)
     setTab('home')
+  }
+
+  function openSuggestFlow(prefill: SuggestPrefill | null = null) {
+    setSuggestPrefill(prefill)
+    setSuggestSessionKey((current) => current + 1)
+    setTab('suggest')
+  }
+
+  function handleTabChange(nextTab: TabKey) {
+    if (nextTab === 'suggest') {
+      openSuggestFlow()
+      return
+    }
+
+    setSuggestPrefill(null)
+    setTab(nextTab)
   }
 
   async function handleToggleConfirmation(roleId: string) {
@@ -155,25 +173,15 @@ function App() {
   }
 
   function handleUseSavedAsSuggestion(saved: SavedPlace) {
-    setSuggestPrefill({
-      title: saved.name,
-      description: saved.description,
-      placeDraft: {
-        name: saved.name,
-        city: saved.city,
-        neighborhood: saved.neighborhood,
-        photoUrl: saved.photoUrl,
-      },
+    openSuggestFlow({
+      mode: 'saved',
+      savedPlaceId: saved.id,
       source: {
         kind: 'saved-place',
         label: saved.name,
-        type: saved.kind,
-        priceBand: saved.priceBand,
-        personalNote: saved.note,
       },
     })
-    setTab('suggest')
-    showToast('Complete a data e o ajuste final para publicar.')
+    showToast('Escolha a data e publique quando quiser.')
   }
 
   if (!currentUser) {
@@ -205,7 +213,9 @@ function App() {
   const isHomeTab = tab === 'home'
   const isSuggestTab = tab === 'suggest'
   const isPlacesTab = tab === 'places'
-  const usesCustomChrome = isHomeTab || isSuggestTab || isPlacesTab
+  const isProfileTab = tab === 'profile'
+  const usesCustomChrome =
+    isHomeTab || isSuggestTab || isPlacesTab || isProfileTab
 
   return (
     <div className="page-shell">
@@ -260,19 +270,26 @@ function App() {
             <HomeView
               roles={roles}
               profiles={profiles}
-              onGoToSuggest={() => setTab('suggest')}
+              onGoToSuggest={() => openSuggestFlow()}
               onOpenDetails={(role) => setDetailsRoleId(role.id)}
             />
           ) : null}
 
           {tab === 'suggest' ? (
             <SuggestView
+              key={suggestSessionKey}
               currentUser={currentUser.name}
               places={places}
               prefill={suggestPrefill}
-              onConsumedPrefill={() => setSuggestPrefill(null)}
-              onCreated={reloadAll}
+              onCreated={async () => {
+                await reloadAll()
+                setSuggestPrefill(null)
+              }}
               onToast={showToast}
+              onOpenPlaces={() => {
+                setSuggestPrefill(null)
+                setTab('places')
+              }}
               onCancel={() => {
                 const targetTab =
                   suggestPrefill?.source?.kind === 'saved-place' ? 'places' : 'home'
@@ -303,7 +320,7 @@ function App() {
         </div>
       </main>
 
-      <BottomNav active={tab} onChange={setTab} />
+      <BottomNav active={tab} onChange={handleTabChange} />
 
       {detailsRole ? (
         <RoleDetailsModal

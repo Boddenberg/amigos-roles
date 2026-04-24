@@ -1,31 +1,29 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
-import { Avatar } from '../components/Avatar'
+import folhasIllustration from '../../folhas.png'
 import { DatePicker } from '../components/DatePicker'
 import { Icon } from '../components/Icon'
 import { fileToCompressedDataUrl } from '../lib/photos'
+import {
+  createSavedPlace,
+  listSavedPlaces,
+  updateSavedPlace,
+} from '../lib/savedPlaces'
+import type { SavedPlace } from '../lib/savedPlaces'
 import { createPlace, createRole } from '../lib/storage'
 import type { Place } from '../lib/storage'
 
+type SuggestMode = 'saved' | 'new'
 type PriceBand = '' | '$' | '$$' | '$$$' | '$$$$'
 
 type PrefillSource = {
   kind: 'saved-place'
   label: string
-  type?: string
-  priceBand?: PriceBand
-  personalNote?: string
 }
 
 export type SuggestPrefill = {
-  title?: string
-  description?: string
-  placeDraft?: {
-    name: string
-    city: string
-    neighborhood: string
-    photoUrl: string
-  }
+  mode?: SuggestMode
+  savedPlaceId?: string
   source?: PrefillSource
 }
 
@@ -33,16 +31,16 @@ type SuggestViewProps = {
   currentUser: string
   places: Array<Place>
   prefill?: SuggestPrefill | null
-  onConsumedPrefill?: () => void
   onCreated: () => void | Promise<void>
   onToast: (message: string, variant?: 'info' | 'error') => void
   onCancel: () => void
+  onOpenPlaces?: () => void
 }
 
 const TYPE_OPTIONS = [
-  'Gastronomico',
+  'Gastronômico',
   'Bar',
-  'Cafe',
+  'Café',
   'Ao ar livre',
   'Cultural',
   'Noite',
@@ -51,11 +49,13 @@ const TYPE_OPTIONS = [
 
 const PRICE_OPTIONS: Array<{ value: PriceBand; label: string }> = [
   { value: '', label: 'Sem faixa' },
-  { value: '$', label: '$ economico' },
-  { value: '$$', label: '$$ medio' },
-  { value: '$$$', label: '$$$ especial' },
-  { value: '$$$$', label: '$$$$ premium' },
+  { value: '$', label: 'R$ econômico' },
+  { value: '$$', label: 'R$$ médio' },
+  { value: '$$$', label: 'R$$$ alto' },
+  { value: '$$$$', label: 'R$$$$ premium' },
 ]
+
+const DESCRIPTION_LIMIT = 120
 
 function todayInputValue() {
   const now = new Date()
@@ -74,7 +74,7 @@ function nextSaturdayInputValue() {
 }
 
 function formatPreviewDate(iso: string) {
-  if (!iso) return 'Escolha um dia'
+  if (!iso) return 'Escolher data'
   const [year, month, day] = iso.split('-').map(Number)
   const date = new Date(year, (month || 1) - 1, day || 1)
   return date.toLocaleDateString('pt-BR', {
@@ -88,11 +88,14 @@ function locationLabel(place?: {
   city: string
   neighborhood: string
 }) {
-  return [place?.neighborhood, place?.city].filter(Boolean).join(' - ')
+  return [place?.neighborhood, place?.city].filter(Boolean).join(' · ')
 }
 
-function priceBandLabel(priceBand: PriceBand) {
-  return PRICE_OPTIONS.find((option) => option.value === priceBand)?.label ?? 'Sem faixa'
+function shortLocationLabel(place?: {
+  city: string
+  neighborhood: string
+}) {
+  return place?.neighborhood || place?.city || 'Local a definir'
 }
 
 function buildRoleDescription(input: {
@@ -110,80 +113,214 @@ function buildRoleDescription(input: {
     .trim()
 }
 
+function coverLetters(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('')
+}
+
+function normalizeLookup(value: string) {
+  return value.trim().toLowerCase()
+}
+
+function findMatchingPlace(savedPlace: SavedPlace, places: Array<Place>) {
+  if (savedPlace.linkedPlaceId) {
+    const linked = places.find((place) => place.id === savedPlace.linkedPlaceId)
+    if (linked) return linked
+  }
+
+  const savedName = normalizeLookup(savedPlace.name)
+  const savedCity = normalizeLookup(savedPlace.city)
+  const savedNeighborhood = normalizeLookup(savedPlace.neighborhood)
+
+  if (!savedName) return null
+
+  return (
+    places.find((place) => {
+      if (normalizeLookup(place.name) !== savedName) return false
+
+      if (savedCity && normalizeLookup(place.city) !== savedCity) return false
+
+      if (
+        savedNeighborhood &&
+        normalizeLookup(place.neighborhood) !== savedNeighborhood
+      ) {
+        return false
+      }
+
+      return true
+    }) ?? null
+  )
+}
+
 export function SuggestView({
   currentUser,
   places,
   prefill,
-  onConsumedPrefill,
   onCreated,
   onToast,
   onCancel,
+  onOpenPlaces,
 }: SuggestViewProps) {
-  const [title, setTitle] = useState('')
+  const [mode, setMode] = useState<SuggestMode>(prefill?.mode ?? 'saved')
+  const [savedPlaces, setSavedPlaces] = useState<Array<SavedPlace>>(() =>
+    listSavedPlaces(currentUser),
+  )
+  const [selectedSavedPlaceId, setSelectedSavedPlaceId] = useState<string | null>(
+    () => prefill?.savedPlaceId ?? listSavedPlaces(currentUser)[0]?.id ?? null,
+  )
   const [date, setDate] = useState(nextSaturdayInputValue())
+
+  const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [kind, setKind] = useState('')
   const [priceBand, setPriceBand] = useState<PriceBand>('')
-  const [placeId, setPlaceId] = useState<string | null>(null)
-  const [placeDraft, setPlaceDraft] = useState<{
-    name: string
-    city: string
-    neighborhood: string
-    photoUrl: string
-  } | null>(null)
-  const [showPlaceSheet, setShowPlaceSheet] = useState(false)
+  const [placeName, setPlaceName] = useState('')
+  const [placeCity, setPlaceCity] = useState('São Paulo')
+  const [placeNeighborhood, setPlaceNeighborhood] = useState('')
+  const [placeAddress, setPlaceAddress] = useState('')
+  const [placePhotoUrl, setPlacePhotoUrl] = useState('')
+  const [saveToMyPlaces, setSaveToMyPlaces] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [prefillSource, setPrefillSource] = useState<PrefillSource | null>(null)
 
-  useEffect(() => {
-    if (!prefill) return
+  const selectedSavedPlace =
+    savedPlaces.find((place) => place.id === selectedSavedPlaceId) ?? null
+  const activeSavedPlace = selectedSavedPlace ?? savedPlaces[0] ?? null
+  const activeSavedPlaceId = activeSavedPlace?.id ?? null
+  const descriptionCount = description.length
 
-    const timer = window.setTimeout(() => {
-      if (prefill.title) setTitle(prefill.title)
-      if (prefill.description) setDescription(prefill.description)
-      if (prefill.source) {
-        setPrefillSource(prefill.source)
-        setKind(prefill.source.type ?? '')
-        setPriceBand(prefill.source.priceBand ?? '')
+  function resetSavedFlow() {
+    setDate(nextSaturdayInputValue())
+  }
+
+  function resetNewFlow() {
+    setTitle('')
+    setDescription('')
+    setKind('')
+    setPriceBand('')
+    setPlaceName('')
+    setPlaceCity('São Paulo')
+    setPlaceNeighborhood('')
+    setPlaceAddress('')
+    setPlacePhotoUrl('')
+    setSaveToMyPlaces(true)
+    setDate(nextSaturdayInputValue())
+  }
+
+  function syncSavedPlace(nextSavedPlace: SavedPlace) {
+    setSavedPlaces((current) =>
+      current.map((place) =>
+        place.id === nextSavedPlace.id ? nextSavedPlace : place,
+      ),
+    )
+  }
+
+  async function ensureSavedPlaceIsReusable(savedPlace: SavedPlace) {
+    const existingPlace = findMatchingPlace(savedPlace, places)
+    if (existingPlace) {
+      if (savedPlace.linkedPlaceId !== existingPlace.id) {
+        const updated = updateSavedPlace(savedPlace.id, {
+          linkedPlaceId: existingPlace.id,
+        })
+        if (updated) syncSavedPlace(updated)
       }
-      if (prefill.placeDraft) {
-        setPlaceDraft(prefill.placeDraft)
-        setPlaceId(null)
-      }
-      onConsumedPrefill?.()
-    }, 0)
+      return existingPlace.id
+    }
 
-    return () => window.clearTimeout(timer)
-  }, [prefill, onConsumedPrefill])
+    const createdPlace = await createPlace({
+      name: savedPlace.name,
+      city: savedPlace.city,
+      neighborhood: savedPlace.neighborhood,
+      address: '',
+      photoUrl: savedPlace.photoUrl,
+      addedBy: currentUser,
+    })
 
-  async function handleSubmit(event: FormEvent) {
+    const updated = updateSavedPlace(savedPlace.id, {
+      linkedPlaceId: createdPlace.id,
+    })
+    if (updated) syncSavedPlace(updated)
+
+    return createdPlace.id
+  }
+
+  async function handlePhotoChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    try {
+      const dataUrl = await fileToCompressedDataUrl(file)
+      setPlacePhotoUrl(dataUrl)
+    } catch {
+      onToast('Não consegui carregar essa foto.', 'error')
+    }
+  }
+
+  async function handleSavedSubmit(event: FormEvent) {
     event.preventDefault()
-    if (!title.trim()) return onToast('Da um nome pro role.', 'error')
+
+    if (!activeSavedPlace) {
+      onToast('Escolha um lugar salvo para sugerir.', 'error')
+      return
+    }
 
     setSaving(true)
     try {
-      let finalPlaceId = placeId
+      const placeId = await ensureSavedPlaceIsReusable(activeSavedPlace)
 
-      if (!finalPlaceId && placeDraft) {
-        const created = await createPlace({
-          name: placeDraft.name,
-          city: placeDraft.city,
-          neighborhood: placeDraft.neighborhood,
-          address: '',
-          photoUrl: placeDraft.photoUrl,
-          addedBy: currentUser,
-        })
-        finalPlaceId = created.id
-      }
+      await createRole({
+        title: activeSavedPlace.name.trim(),
+        placeId,
+        date,
+        suggestedBy: currentUser,
+        description: buildRoleDescription({
+          kind: activeSavedPlace.kind,
+          priceBand: activeSavedPlace.priceBand,
+          description: activeSavedPlace.description,
+        }),
+      })
 
-      if (!finalPlaceId) {
-        onToast('Escolhe um lugar ou cria um novo.', 'error')
-        return
-      }
+      resetSavedFlow()
+      await onCreated()
+      onToast('Sugestão publicada para o grupo!')
+    } catch (error) {
+      console.error(error)
+      onToast('Não consegui publicar essa sugestão.', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleNewSubmit(event: FormEvent) {
+    event.preventDefault()
+
+    if (!title.trim()) {
+      onToast('Dê um nome para o rolê.', 'error')
+      return
+    }
+
+    if (!placeName.trim()) {
+      onToast('Dê um nome para o local.', 'error')
+      return
+    }
+
+    setSaving(true)
+    try {
+      const createdPlace = await createPlace({
+        name: placeName.trim(),
+        city: placeCity.trim(),
+        neighborhood: placeNeighborhood.trim(),
+        address: placeAddress.trim(),
+        photoUrl: placePhotoUrl,
+        addedBy: currentUser,
+      })
 
       await createRole({
         title: title.trim(),
-        placeId: finalPlaceId,
+        placeId: createdPlace.id,
         date,
         suggestedBy: currentUser,
         description: buildRoleDescription({
@@ -193,523 +330,457 @@ export function SuggestView({
         }),
       })
 
-      setPlaceId(null)
-      setPlaceDraft(null)
-      setTitle('')
-      setDescription('')
-      setKind('')
-      setPriceBand('')
-      setPrefillSource(null)
-      setDate(nextSaturdayInputValue())
+      if (saveToMyPlaces) {
+        const savedPlace = createSavedPlace({
+          owner: currentUser,
+          name: placeName.trim(),
+          description: description.trim() || title.trim(),
+          kind: kind.trim(),
+          city: placeCity.trim(),
+          neighborhood: placeNeighborhood.trim(),
+          priceBand,
+          photoUrl: placePhotoUrl,
+          note: '',
+          linkedPlaceId: createdPlace.id,
+        })
+
+        setSavedPlaces((current) => [savedPlace, ...current])
+        setSelectedSavedPlaceId(savedPlace.id)
+      }
+
+      resetNewFlow()
       await onCreated()
-      onToast('Sugestao no ar!')
+      onToast(
+        saveToMyPlaces
+          ? 'Sugestão salva e local guardado em Meus lugares.'
+          : 'Sugestão salva para o grupo!',
+      )
     } catch (error) {
       console.error(error)
-      onToast('Nao consegui salvar a sugestao.', 'error')
+      onToast('Não consegui salvar essa sugestão.', 'error')
     } finally {
       setSaving(false)
     }
   }
 
-  async function handlePlaceCreated(place: Place) {
-    setPlaceId(place.id)
-    setPlaceDraft(null)
-    setShowPlaceSheet(false)
-    await onCreated()
-    onToast('Lugar cadastrado.')
+  function focusPlaceField() {
+    const input = document.getElementById('place-name') as HTMLInputElement | null
+    input?.focus()
   }
 
-  const selectedPlace =
-    (placeId && places.find((place) => place.id === placeId)) || null
-  const previewPlace = selectedPlace ?? placeDraft
-  const previewTitle = title.trim() || 'Sua nova sugestao'
-  const previewDescription =
-    description.trim() ||
-    'Preencha so o essencial e deixe o role com cara de convite bem pensado.'
-  const isFromSavedPlace = prefillSource?.kind === 'saved-place'
+  function handleHowItWorks() {
+    onToast(
+      mode === 'saved'
+        ? 'Escolha um lugar salvo, ajuste a data e publique para o grupo.'
+        : 'Preencha os dados do rolê, escolha o local e salve em Meus lugares se quiser reaproveitar depois.',
+    )
+  }
+
+  const topText =
+    mode === 'saved'
+      ? 'Publique um lugar salvo ou crie um rolê novo sem complicação.'
+      : 'Crie um rolê novo sem complicação.'
+
+  const newRoleTitle = title.trim() || 'Sua nova sugestão'
+  const newRoleLocation = placeName.trim() || 'Escolha um local'
 
   return (
-    <div className="suggest-mobile">
-      <header className="suggest-header">
-        <div className="suggest-header__copy">
-          <span className="home-block__eyebrow">Sugestao para o grupo</span>
-          <h2 className="suggest-header__title">Nova sugestao</h2>
-          <p className="suggest-header__text">
-            Monte um role bonito, claro e facil de entender no celular antes de
-            mandar para a turma.
-          </p>
+    <div className="suggest-page">
+      <header className="suggest-page__header">
+        <div className="suggest-page__copy">
+          <span className="home-block__eyebrow">Para o grupo</span>
+          <h2 className="suggest-page__title">Sugestões</h2>
+          <p className="suggest-page__text">{topText}</p>
         </div>
+
+        <button
+          type="button"
+          className="suggest-page__help"
+          onClick={handleHowItWorks}
+        >
+          <Icon name="info" size={18} />
+          Como funciona
+        </button>
       </header>
 
-      {isFromSavedPlace ? (
-        <section className="suggest-prefill-card">
-          <div className="suggest-prefill-card__header">
-            <span className="suggest-prefill-card__icon" aria-hidden="true">
-              <Icon name="bookmark" size={16} />
-            </span>
-            <div>
-              <div className="home-block__eyebrow">Veio de Meus lugares</div>
-              <h3 className="suggest-prefill-card__title">{prefillSource?.label}</h3>
-            </div>
-          </div>
+      <section
+        className="suggest-mode-switch"
+        role="tablist"
+        aria-label="Tipo de sugestão"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'saved'}
+          className={`suggest-mode-switch__item${
+            mode === 'saved' ? ' suggest-mode-switch__item--active' : ''
+          }`}
+          onClick={() => setMode('saved')}
+        >
+          <Icon name="bookmark" size={20} />
+          Lugar salvo
+        </button>
 
-          <p className="suggest-prefill-card__text">
-            Essa ideia estava guardada como rascunho privado. Agora voce so
-            ajusta o necessario para transformar em sugestao publica.
-          </p>
-
-          <div className="suggest-prefill-card__tags">
-            {kind ? <span className="chip chip--sm chip--primary">{kind}</span> : null}
-            {priceBand ? (
-              <span className="chip chip--sm">{priceBandLabel(priceBand)}</span>
-            ) : null}
-            <span className="chip chip--sm chip--accent">Rascunho privado</span>
-          </div>
-
-          {prefillSource?.personalNote ? (
-            <div className="suggest-prefill-card__note">
-              <span>Observacao pessoal</span>
-              <p>{prefillSource.personalNote}</p>
-            </div>
-          ) : null}
-        </section>
-      ) : null}
-
-      <section className="suggest-stage">
-        <div className="suggest-stage__media">
-          {previewPlace?.photoUrl ? (
-            <img src={previewPlace.photoUrl} alt={previewPlace.name} />
-          ) : (
-            <div className="suggest-stage__placeholder">
-              <Icon name="image" size={24} />
-              <span>Adicione uma foto opcional pelo local</span>
-            </div>
-          )}
-        </div>
-
-        <div className="suggest-stage__body">
-          <div className="suggest-stage__chips">
-            <span className="chip chip--sm chip--primary">
-              {kind || 'Tipo do role'}
-            </span>
-            <span className="chip chip--sm">{priceBandLabel(priceBand)}</span>
-            <span className="chip chip--sm chip--accent">{formatPreviewDate(date)}</span>
-          </div>
-
-          <h3 className="suggest-stage__title">{previewTitle}</h3>
-          <p className="suggest-stage__text">{previewDescription}</p>
-
-          <div className="suggest-stage__meta">
-            <span>
-              <Icon name="pin" size={13} />
-              {previewPlace ? locationLabel(previewPlace) || previewPlace.name : 'Escolha um local'}
-            </span>
-            <span>
-              <Icon name="user" size={13} />
-              {currentUser}
-            </span>
-          </div>
-        </div>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'new'}
+          className={`suggest-mode-switch__item${
+            mode === 'new' ? ' suggest-mode-switch__item--active' : ''
+          }`}
+          onClick={() => setMode('new')}
+        >
+          <Icon name="plus" size={20} />
+          Novo rolê
+        </button>
       </section>
 
-      <form className="form suggest-mobile__form" onSubmit={handleSubmit}>
-        <section className="form-card suggest-panel">
-          <div className="form-card__header">
-            <div>
-              <h3 className="form-card__title">Detalhes da sugestao</h3>
-              <p className="form-card__sub">
-                Deixe o convite bonito e facil de escanear.
+      {mode === 'saved' ? (
+        <form className="suggest-layout suggest-layout--saved" onSubmit={handleSavedSubmit}>
+          <section className="suggest-showcase suggest-showcase--saved">
+            <div className="suggest-showcase__media">
+              {activeSavedPlace?.photoUrl ? (
+                <img src={activeSavedPlace.photoUrl} alt={activeSavedPlace.name} />
+              ) : (
+                <div className="suggest-showcase__placeholder">
+                  {activeSavedPlace ? coverLetters(activeSavedPlace.name) : 'LS'}
+                </div>
+              )}
+              <span className="suggest-showcase__badge">Lugar salvo</span>
+            </div>
+
+            <div className="suggest-showcase__body">
+              <h3 className="suggest-showcase__title">
+                {activeSavedPlace?.name || 'Escolha um lugar salvo'}
+              </h3>
+
+              <div className="suggest-showcase__meta suggest-showcase__meta--saved">
+                <span>
+                  <Icon name="pin" size={18} />
+                  {activeSavedPlace
+                    ? shortLocationLabel(activeSavedPlace)
+                    : 'Escolha um lugar'}
+                </span>
+                <span className="suggest-showcase__separator" aria-hidden="true" />
+                <DatePicker
+                  value={date}
+                  onChange={setDate}
+                  minDate={todayInputValue()}
+                  variant="inline"
+                  placeholder="Escolher data"
+                />
+                <span className="suggest-showcase__separator" aria-hidden="true" />
+                <span>
+                  <Icon name="user" size={18} />
+                  {currentUser} sugeriu
+                </span>
+              </div>
+
+              <div className="suggest-showcase__divider" />
+              <p className="suggest-showcase__sub">
+                {activeSavedPlace
+                  ? 'Escolha a data e publique para o grupo.'
+                  : 'Selecione um lugar salvo para continuar.'}
               </p>
             </div>
-          </div>
+          </section>
 
-          <div className="form-group">
-            <label htmlFor="role-title">Nome do role</label>
-            <input
-              id="role-title"
-              className="input"
-              type="text"
-              placeholder="Ex.: Jantar japones + karaoke"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-            />
-          </div>
+          <section className="form-card suggest-saved-library">
+            <div className="suggest-saved-library__header">
+              <div className="suggest-saved-library__copy">
+                <h3 className="form-card__title">Meus lugares salvos</h3>
+              </div>
 
-          <div className="form-group">
-            <label htmlFor="role-desc">Descricao curta</label>
-            <textarea
-              id="role-desc"
-              className="textarea"
-              placeholder="Conta o plano rapidinho e o que faz essa ideia valer a pena."
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Tipo do role</label>
-            <div className="chip-select">
-              {TYPE_OPTIONS.map((option) => (
+              {onOpenPlaces ? (
                 <button
                   type="button"
-                  key={option}
-                  className={`chip-select__option${
-                    kind === option ? ' chip-select__option--active' : ''
-                  }`}
-                  onClick={() => setKind(kind === option ? '' : option)}
+                  className="suggest-saved-library__link"
+                  onClick={onOpenPlaces}
                 >
-                  {option}
+                  Ver todos
+                  <Icon name="chevron-right" size={18} />
                 </button>
-              ))}
+              ) : null}
             </div>
-          </div>
-        </section>
 
-        <section className="form-card suggest-panel">
-          <div className="form-card__header">
-            <div>
-              <h3 className="form-card__title">Local, data e contexto</h3>
-              <p className="form-card__sub">
-                Tudo em coluna unica, com menos cara de formulario tradicional.
-              </p>
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label>Local</label>
-            {selectedPlace ? (
-              <button
-                type="button"
-                className="selected-place"
-                onClick={() => setShowPlaceSheet(true)}
-              >
-                <span className="selected-place__thumb" aria-hidden="true">
-                  {selectedPlace.photoUrl ? (
-                    <img src={selectedPlace.photoUrl} alt="" />
-                  ) : (
-                    <Icon name="image" size={20} />
-                  )}
-                </span>
-                <span className="selected-place__body">
-                  <strong>{selectedPlace.name}</strong>
-                  <span>{locationLabel(selectedPlace) || 'Sem localizacao detalhada'}</span>
-                </span>
-                <span className="selected-place__change">Trocar</span>
-              </button>
-            ) : placeDraft ? (
-              <button
-                type="button"
-                className="selected-place"
-                onClick={() => setShowPlaceSheet(true)}
-              >
-                <span className="selected-place__thumb" aria-hidden="true">
-                  {placeDraft.photoUrl ? (
-                    <img src={placeDraft.photoUrl} alt="" />
-                  ) : (
-                    <Icon name="image" size={20} />
-                  )}
-                </span>
-                <span className="selected-place__body">
-                  <strong>{placeDraft.name}</strong>
-                  <span>{locationLabel(placeDraft) || 'Novo local'}</span>
-                </span>
-                <span className="selected-place__change">Trocar</span>
-              </button>
+            {savedPlaces.length === 0 ? (
+              <div className="home-empty suggest-empty-saved">
+                <div className="home-empty__icon" aria-hidden="true">
+                  <Icon name="bookmark" size={22} />
+                </div>
+                <div className="home-empty__title">Você ainda não salvou lugares.</div>
+                <div className="home-empty__text">
+                  Crie um novo rolê agora e marque a opção para guardar esse local
+                  na sua lista privada.
+                </div>
+                <button
+                  type="button"
+                  className="btn btn--primary btn--block"
+                  onClick={() => setMode('new')}
+                >
+                  <Icon name="plus" size={16} />
+                  Criar novo rolê
+                </button>
+              </div>
             ) : (
-              <button
-                type="button"
-                className="btn btn--secondary btn--block"
-                onClick={() => setShowPlaceSheet(true)}
-              >
-                Escolher local
-              </button>
-            )}
-          </div>
+              <div className="suggest-saved-library__list" aria-label="Lugares salvos">
+                {savedPlaces.slice(0, 3).map((place) => {
+                  const isActive = place.id === activeSavedPlaceId
 
-          <div className="form-group">
-            <label>Foto opcional</label>
+                  return (
+                    <article
+                      key={place.id}
+                      className={`suggest-saved-row${
+                        isActive ? ' suggest-saved-row--active' : ''
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        className="suggest-saved-row__main"
+                        onClick={() => setSelectedSavedPlaceId(place.id)}
+                      >
+                        <span className="suggest-saved-row__thumb" aria-hidden="true">
+                          {place.photoUrl ? (
+                            <img src={place.photoUrl} alt="" />
+                          ) : (
+                            <span className="suggest-saved-row__fallback">
+                              {coverLetters(place.name)}
+                            </span>
+                          )}
+                        </span>
+
+                        <span className="suggest-saved-row__copy">
+                          <strong>{place.name}</strong>
+                          <span>{locationLabel(place) || 'Local a definir'}</span>
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        className={`suggest-saved-row__action${
+                          isActive ? ' suggest-saved-row__action--active' : ''
+                        }`}
+                        onClick={() => setSelectedSavedPlaceId(place.id)}
+                      >
+                        {isActive ? 'Usando' : 'Usar'}
+                      </button>
+                    </article>
+                  )
+                })}
+              </div>
+            )}
+          </section>
+
+          <div className="suggest-actions suggest-actions--page">
             <button
               type="button"
-              className="suggest-photo-field"
-              onClick={() => setShowPlaceSheet(true)}
+              className="btn btn--secondary"
+              onClick={onCancel}
             >
-              <span className="suggest-photo-field__thumb" aria-hidden="true">
-                {previewPlace?.photoUrl ? (
-                  <img src={previewPlace.photoUrl} alt="" />
-                ) : (
-                  <Icon name="image" size={18} />
-                )}
-              </span>
-              <span className="suggest-photo-field__body">
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="btn btn--primary"
+              disabled={saving || !activeSavedPlace}
+            >
+              <Icon name="sparkle" size={16} />
+              {saving ? 'Publicando...' : 'Publicar sugestão'}
+            </button>
+          </div>
+        </form>
+      ) : null}
+
+      {mode === 'new' ? (
+        <form className="suggest-layout suggest-layout--new" onSubmit={handleNewSubmit}>
+          <section className="suggest-showcase suggest-showcase--new">
+            <label className="suggest-showcase__media suggest-showcase__media--upload">
+              {placePhotoUrl ? (
+                <img src={placePhotoUrl} alt="Prévia do local" />
+              ) : (
+                <img
+                  src={folhasIllustration}
+                  alt=""
+                  className="suggest-showcase__illustration"
+                />
+              )}
+
+              <span className="suggest-showcase__badge">Novo rolê</span>
+
+              <span className="suggest-upload-card">
+                <span className="suggest-upload-card__icon">
+                  <Icon name="image" size={30} />
+                </span>
                 <strong>
-                  {previewPlace?.photoUrl
-                    ? 'Usando a foto do local escolhido'
-                    : 'Adicionar foto via local'}
+                  {placePhotoUrl ? 'Trocar foto do local' : 'Adicionar foto do local'}
                 </strong>
                 <span>
-                  {previewPlace
-                    ? 'Se quiser outra imagem, troque o local ou cadastre um novo com foto.'
-                    : 'Ao escolher ou criar um local, voce pode deixar a sugestao com imagem.'}
+                  {placePhotoUrl
+                    ? 'Toque para trocar a foto.'
+                    : 'Toque para escolher uma foto.'}
                 </span>
               </span>
-            </button>
-          </div>
 
-          <div className="form-group">
-            <label>Data</label>
-            <DatePicker
-              value={date}
-              onChange={setDate}
-              minDate={todayInputValue()}
-            />
-          </div>
+              <input type="file" accept="image/*" onChange={handlePhotoChange} />
+            </label>
 
-          <div className="form-group">
-            <label>Faixa de preco</label>
-            <div className="chip-select">
-              {PRICE_OPTIONS.map((option) => (
-                <button
-                  type="button"
-                  key={option.value || 'none'}
-                  className={`chip-select__option${
-                    priceBand === option.value
-                      ? ' chip-select__option--active'
-                      : ''
-                  }`}
-                  onClick={() => setPriceBand(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
+            <div className="suggest-showcase__body">
+              <h3 className="suggest-showcase__title">{newRoleTitle}</h3>
 
-          <div className="form-group">
-            <label>Quem esta sugerindo</label>
-            <div className="suggest-owner">
-              <Avatar name={currentUser} size="sm" />
-              <div className="suggest-owner__copy">
-                <strong>{currentUser}</strong>
-                <span>Seu nome vai aparecer como quem sugeriu esse role.</span>
+              <div className="suggest-showcase__meta">
+                <span>
+                  <Icon name="pin" size={18} />
+                  {newRoleLocation}
+                </span>
+                <span className="suggest-showcase__separator" aria-hidden="true" />
+                <span>
+                  <Icon name="calendar" size={18} />
+                  {formatPreviewDate(date)}
+                </span>
+                <span className="suggest-showcase__separator" aria-hidden="true" />
+                <span>
+                  <Icon name="user" size={18} />
+                  {currentUser}
+                </span>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <div className="suggest-actions">
-          <button type="button" className="btn btn--secondary" onClick={onCancel}>
-            Cancelar
-          </button>
-          <button
-            type="submit"
-            className="btn btn--primary"
-            disabled={saving}
-          >
-            {saving ? 'Salvando...' : 'Salvar sugestao'}
-          </button>
-        </div>
-      </form>
-
-      {showPlaceSheet ? (
-        <PlacePickerSheet
-          places={places}
-          currentUser={currentUser}
-          onClose={() => setShowPlaceSheet(false)}
-          onSelect={(id) => {
-            setPlaceId(id)
-            setPlaceDraft(null)
-            setShowPlaceSheet(false)
-          }}
-          onCreated={handlePlaceCreated}
-          onToast={onToast}
-        />
-      ) : null}
-    </div>
-  )
-}
-
-type PlacePickerSheetProps = {
-  places: Array<Place>
-  currentUser: string
-  onClose: () => void
-  onSelect: (id: string) => void
-  onCreated: (place: Place) => void | Promise<void>
-  onToast: (message: string, variant?: 'info' | 'error') => void
-}
-
-function PlacePickerSheet({
-  places,
-  currentUser,
-  onClose,
-  onSelect,
-  onCreated,
-  onToast,
-}: PlacePickerSheetProps) {
-  const [mode, setMode] = useState<'list' | 'create'>('list')
-  const [name, setName] = useState('')
-  const [city, setCity] = useState('Sao Paulo')
-  const [neighborhood, setNeighborhood] = useState('')
-  const [address, setAddress] = useState('')
-  const [photoUrl, setPhotoUrl] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  async function handlePhotoChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    if (!file) return
-    try {
-      const dataUrl = await fileToCompressedDataUrl(file)
-      setPhotoUrl(dataUrl)
-    } catch {
-      onToast('Nao consegui carregar essa foto.', 'error')
-    }
-  }
-
-  async function handleCreate(event: FormEvent) {
-    event.preventDefault()
-    if (!name.trim()) return onToast('Da um nome pro lugar.', 'error')
-
-    setSaving(true)
-    try {
-      const place = await createPlace({
-        name: name.trim(),
-        city: city.trim(),
-        neighborhood: neighborhood.trim(),
-        address: address.trim(),
-        photoUrl,
-        addedBy: currentUser,
-      })
-      await onCreated(place)
-    } catch (error) {
-      console.error(error)
-      onToast('Nao consegui salvar o lugar.', 'error')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <>
-      <div className="sheet-backdrop" onClick={onClose} />
-      <div className="sheet" role="dialog" aria-modal="true">
-        <div className="sheet__handle" aria-hidden="true" />
-
-        <div className="sheet__header">
-          <div>
-            <h2 className="sheet__title">Escolher local</h2>
-            <p className="sheet__sub">
-              Reaproveite um local salvo ou crie um novo sem sair da sugestao.
-            </p>
-          </div>
-          <button
-            type="button"
-            className="icon-button"
-            onClick={onClose}
-            aria-label="Fechar"
-          >
-            <Icon name="close" size={18} />
-          </button>
-        </div>
-
-        <div className="sheet-switcher" role="tablist" aria-label="Modo da folha">
-          <button
-            type="button"
-            className={`sheet-switcher__item${
-              mode === 'list' ? ' sheet-switcher__item--active' : ''
-            }`}
-            onClick={() => setMode('list')}
-          >
-            Escolher
-          </button>
-          <button
-            type="button"
-            className={`sheet-switcher__item${
-              mode === 'create' ? ' sheet-switcher__item--active' : ''
-            }`}
-            onClick={() => setMode('create')}
-          >
-            Novo local
-          </button>
-        </div>
-
-        {mode === 'list' ? (
-          <div className="place-grid">
-            <button
-              type="button"
-              className="place-card place-card--new"
-              onClick={() => setMode('create')}
-            >
-              <span className="place-card__thumb place-card__thumb--new" aria-hidden="true">
-                <Icon name="plus" size={18} />
+          <section className="form-card suggest-section">
+            <div className="suggest-section__header">
+              <span className="suggest-section__icon suggest-section__icon--peach">
+                <Icon name="edit" size={18} />
               </span>
-              <span className="place-card__body">
-                <strong>Cadastrar novo local</strong>
-                <span>Adicione foto, bairro e endereco quando precisar.</span>
-              </span>
-              <span className="place-card__action">Criar</span>
-            </button>
+              <div className="suggest-section__copy">
+                <h3 className="form-card__title">Essencial</h3>
+              </div>
+            </div>
 
-            {places.map((place) => (
+            <div className="suggest-section__grid suggest-section__grid--essential">
+              <div className="form-group">
+                <label htmlFor="role-title">Nome do rolê</label>
+                <input
+                  id="role-title"
+                  className="input"
+                  type="text"
+                  placeholder="Jantar japonês + karaokê"
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="role-desc">Descrição curta</label>
+                <textarea
+                  id="role-desc"
+                  className="textarea"
+                  placeholder="Jantar seguido de karaokê para fechar a noite."
+                  value={description}
+                  maxLength={DESCRIPTION_LIMIT}
+                  onChange={(event) => setDescription(event.target.value)}
+                />
+                <span className="suggest-field-counter">
+                  {descriptionCount}/{DESCRIPTION_LIMIT}
+                </span>
+              </div>
+            </div>
+          </section>
+
+          <section className="form-card suggest-section">
+            <div className="suggest-section__header">
+              <span className="suggest-section__icon suggest-section__icon--mint">
+                <Icon name="tag" size={18} />
+              </span>
+              <div className="suggest-section__copy">
+                <h3 className="form-card__title">Detalhes rápidos</h3>
+              </div>
+            </div>
+
+            <div className="suggest-chip-group">
+              <label>Faixa de preço</label>
+              <div className="chip-select chip-select--wide">
+                {PRICE_OPTIONS.map((option) => (
+                  <button
+                    type="button"
+                    key={option.value || 'none'}
+                    className={`chip-select__option${
+                      priceBand === option.value
+                        ? ' chip-select__option--active'
+                        : ''
+                    }`}
+                    onClick={() => setPriceBand(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="suggest-chip-group">
+              <label>Tipo do rolê</label>
+              <div className="chip-select chip-select--wide">
+                {TYPE_OPTIONS.map((option) => (
+                  <button
+                    type="button"
+                    key={option}
+                    className={`chip-select__option${
+                      kind === option ? ' chip-select__option--active' : ''
+                    }`}
+                    onClick={() => setKind(kind === option ? '' : option)}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <section className="form-card suggest-section">
+            <div className="suggest-section__header">
+              <span className="suggest-section__icon suggest-section__icon--sky">
+                <Icon name="pin" size={18} />
+              </span>
+              <div className="suggest-section__copy">
+                <h3 className="form-card__title">Quando e onde</h3>
+              </div>
+            </div>
+
+            <div className="suggest-where-grid">
               <button
                 type="button"
-                key={place.id}
-                className="place-card"
-                onClick={() => onSelect(place.id)}
+                className="suggest-inline-field"
+                onClick={focusPlaceField}
               >
-                <span className="place-card__thumb" aria-hidden="true">
-                  {place.photoUrl ? (
-                    <img src={place.photoUrl} alt="" />
-                  ) : (
-                    <Icon name="image" size={20} />
-                  )}
+                <span className="suggest-inline-field__label">Local</span>
+                <span className="suggest-inline-field__value">
+                  <Icon name="pin" size={18} />
+                  {placeName.trim() || 'Escolher local'}
                 </span>
-                <span className="place-card__body">
-                  <strong>{place.name}</strong>
-                  <span>
-                    {locationLabel(place) || 'Sem localizacao detalhada'}
-                  </span>
-                </span>
-                <span className="place-card__action">Usar</span>
+                <Icon name="chevron-right" size={18} />
               </button>
-            ))}
-          </div>
-        ) : (
-          <form className="form" onSubmit={handleCreate}>
-            <section className="form-card form-card--flat">
-              <div className="form-group">
-                <label>Foto opcional</label>
-                <label className="photo-picker">
-                  {photoUrl ? (
-                    <img src={photoUrl} alt="" />
-                  ) : (
-                    <span className="photo-picker__empty">
-                      <Icon name="image" size={20} />
-                      Toque para escolher uma foto
-                    </span>
-                  )}
-                  <input type="file" accept="image/*" onChange={handlePhotoChange} />
-                </label>
-              </div>
 
+              <div className="suggest-inline-field suggest-inline-field--date">
+                <span className="suggest-inline-field__label">Data</span>
+                <DatePicker
+                  value={date}
+                  onChange={setDate}
+                  minDate={todayInputValue()}
+                  variant="inline"
+                  placeholder="Escolher data"
+                />
+              </div>
+            </div>
+
+            <div className="suggest-section__grid suggest-section__grid--place">
               <div className="form-group">
                 <label htmlFor="place-name">Nome do local</label>
                 <input
                   id="place-name"
                   className="input"
                   type="text"
-                  placeholder="Ex.: Casa do Bruno"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="place-city">Cidade</label>
-                <input
-                  id="place-city"
-                  className="input"
-                  type="text"
-                  value={city}
-                  onChange={(event) => setCity(event.target.value)}
+                  placeholder="Jantar com varanda"
+                  value={placeName}
+                  onChange={(event) => setPlaceName(event.target.value)}
                 />
               </div>
 
@@ -719,44 +790,74 @@ function PlacePickerSheet({
                   id="place-neighborhood"
                   className="input"
                   type="text"
-                  placeholder="Ex.: Liberdade"
-                  value={neighborhood}
-                  onChange={(event) => setNeighborhood(event.target.value)}
+                  placeholder="Liberdade"
+                  value={placeNeighborhood}
+                  onChange={(event) => setPlaceNeighborhood(event.target.value)}
                 />
               </div>
 
               <div className="form-group">
-                <label htmlFor="place-address">Endereco</label>
+                <label htmlFor="place-city">Cidade</label>
+                <input
+                  id="place-city"
+                  className="input"
+                  type="text"
+                  value={placeCity}
+                  onChange={(event) => setPlaceCity(event.target.value)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="place-address">Endereço</label>
                 <input
                   id="place-address"
                   className="input"
                   type="text"
-                  placeholder="Rua, numero..."
-                  value={address}
-                  onChange={(event) => setAddress(event.target.value)}
+                  placeholder="Rua, número..."
+                  value={placeAddress}
+                  onChange={(event) => setPlaceAddress(event.target.value)}
                 />
               </div>
-            </section>
-
-            <div className="sheet__actions">
-              <button
-                type="button"
-                className="btn btn--secondary"
-                onClick={() => setMode('list')}
-              >
-                Voltar
-              </button>
-              <button
-                type="submit"
-                className="btn btn--primary"
-                disabled={saving}
-              >
-                {saving ? 'Salvando...' : 'Salvar local'}
-              </button>
             </div>
-          </form>
-        )}
-      </div>
-    </>
+          </section>
+
+          <label className="suggest-save-card">
+            <span className="suggest-save-card__copy">
+              <strong>Salvar também em Meus lugares</strong>
+              <span>Guarda esse local na sua lista privada.</span>
+            </span>
+
+            <span
+              className={`suggest-save-card__switch${
+                saveToMyPlaces ? ' suggest-save-card__switch--active' : ''
+              }`}
+              aria-hidden="true"
+            >
+              <span />
+            </span>
+
+            <input
+              type="checkbox"
+              checked={saveToMyPlaces}
+              onChange={(event) => setSaveToMyPlaces(event.target.checked)}
+            />
+          </label>
+
+          <div className="suggest-actions suggest-actions--page">
+            <button
+              type="button"
+              className="btn btn--secondary"
+              onClick={onCancel}
+            >
+              Cancelar
+            </button>
+            <button type="submit" className="btn btn--primary" disabled={saving}>
+              <Icon name="sparkle" size={16} />
+              {saving ? 'Salvando...' : 'Salvar sugestão'}
+            </button>
+          </div>
+        </form>
+      ) : null}
+    </div>
   )
 }
