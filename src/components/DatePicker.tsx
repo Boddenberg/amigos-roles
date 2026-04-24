@@ -5,13 +5,17 @@ type DatePickerProps = {
   value: string
   onChange: (value: string) => void
   minDate?: string
+  label?: string
+  placeholder?: string
+  ctaLabel?: string
+  variant?: 'default' | 'inline'
 }
 
 const WEEKDAYS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab']
 const MONTHS = [
   'janeiro',
   'fevereiro',
-  'marco',
+  'março',
   'abril',
   'maio',
   'junho',
@@ -55,7 +59,7 @@ function nextWeekdayIso(weekday: number) {
 }
 
 function formatCompactDate(iso: string) {
-  if (!iso) return 'Escolha uma data'
+  if (!iso) return 'Escolher data'
   const date = parseIso(iso)
   return date.toLocaleDateString('pt-BR', {
     weekday: 'short',
@@ -65,7 +69,7 @@ function formatCompactDate(iso: string) {
 }
 
 function formatLongDate(iso: string) {
-  if (!iso) return 'Escolha uma data'
+  if (!iso) return 'Escolher data'
   const date = parseIso(iso)
   return date.toLocaleDateString('pt-BR', {
     weekday: 'long',
@@ -79,7 +83,15 @@ function toMonthView(iso: string) {
   return { year: date.getFullYear(), month: date.getMonth() }
 }
 
-export function DatePicker({ value, onChange, minDate }: DatePickerProps) {
+export function DatePicker({
+  value,
+  onChange,
+  minDate,
+  label = 'Data do rolê',
+  placeholder = 'Escolher data',
+  ctaLabel = 'Abrir',
+  variant = 'default',
+}: DatePickerProps) {
   const todayIso = useMemo(() => {
     const today = new Date()
     return toIso(today.getFullYear(), today.getMonth(), today.getDate())
@@ -179,12 +191,19 @@ export function DatePicker({ value, onChange, minDate }: DatePickerProps) {
   }
 
   const monthLabel = `${MONTHS[viewMonth]} ${viewYear}`
+  const isInline = variant === 'inline'
+  const triggerClassName = [
+    'date-trigger',
+    isInline ? 'date-trigger--inline' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
 
   return (
     <>
       <button
         type="button"
-        className="date-trigger"
+        className={triggerClassName}
         onClick={openPicker}
         aria-label="Escolher data"
       >
@@ -192,13 +211,19 @@ export function DatePicker({ value, onChange, minDate }: DatePickerProps) {
           <Icon name="calendar" size={18} />
         </span>
         <span className="date-trigger__body">
-          <span className="date-trigger__label">Data do role</span>
-          <strong>{formatCompactDate(value)}</strong>
-          <span className="date-trigger__hint">
-            Toque para abrir um calendario melhor no celular
-          </span>
+          {!isInline ? (
+            <span className="date-trigger__label">{label}</span>
+          ) : null}
+          <strong>{value ? formatCompactDate(value) : placeholder}</strong>
+          {!isInline ? (
+            <span className="date-trigger__hint">
+              Toque para abrir um calendário melhor no celular.
+            </span>
+          ) : null}
         </span>
-        <span className="date-trigger__cta">Abrir</span>
+        <span className="date-trigger__cta">
+          {isInline ? <Icon name="chevron-right" size={18} /> : ctaLabel}
+        </span>
       </button>
 
       {isOpen ? (
@@ -217,7 +242,7 @@ export function DatePicker({ value, onChange, minDate }: DatePickerProps) {
                 <span className="sheet__eyebrow">Selecionar data</span>
                 <h2 className="date-sheet__title">{formatLongDate(value || fallbackIso)}</h2>
                 <p className="date-sheet__sub">
-                  Toque em um dia para usar essa data na sugestao.
+                  Toque em um dia para usar essa data na sugestão.
                 </p>
               </div>
 
@@ -236,13 +261,13 @@ export function DatePicker({ value, onChange, minDate }: DatePickerProps) {
                 Hoje
               </button>
               <button type="button" onClick={() => apply(addDays(todayIso, 1))}>
-                Amanha
+                Amanhã
               </button>
               <button type="button" onClick={() => apply(nextWeekdayIso(5))}>
                 Sexta
               </button>
               <button type="button" onClick={() => apply(nextWeekdayIso(6))}>
-                Sabado
+                Sábado
               </button>
             </div>
 
@@ -252,7 +277,7 @@ export function DatePicker({ value, onChange, minDate }: DatePickerProps) {
                 className="date-sheet__nav"
                 onClick={goPrev}
                 disabled={!canGoPrev}
-                aria-label="Mes anterior"
+                aria-label="Mês anterior"
               >
                 ‹
               </button>
@@ -261,7 +286,7 @@ export function DatePicker({ value, onChange, minDate }: DatePickerProps) {
                 type="button"
                 className="date-sheet__nav"
                 onClick={goNext}
-                aria-label="Proximo mes"
+                aria-label="Próximo mês"
               >
                 ›
               </button>

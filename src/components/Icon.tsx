@@ -11,6 +11,7 @@ type IconProps = {
 
 type IconName =
   | 'calendar'
+  | 'arrow-left'
   | 'pin'
   | 'check'
   | 'check-circle'
@@ -26,6 +27,11 @@ type IconName =
   | 'user'
   | 'bookmark'
   | 'clock'
+  | 'more-horizontal'
+  | 'trash'
+  | 'info'
+  | 'chevron-right'
+  | 'tag'
 
 const base = {
   fill: 'none',
@@ -51,6 +57,13 @@ export function Icon({
   }
 
   switch (name) {
+    case 'arrow-left':
+      return (
+        <svg {...common}>
+          <path d="M19 12H5" />
+          <path d="m12 5-7 7 7 7" />
+        </svg>
+      )
     case 'calendar':
       return (
         <svg {...common}>
@@ -167,6 +180,45 @@ export function Icon({
         <svg {...common}>
           <circle cx="12" cy="12" r="9" />
           <path d="M12 7.5V12l3 2" />
+        </svg>
+      )
+    case 'more-horizontal':
+      return (
+        <svg {...common}>
+          <circle cx="6" cy="12" r="1.4" fill="currentColor" stroke="none" />
+          <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" />
+          <circle cx="18" cy="12" r="1.4" fill="currentColor" stroke="none" />
+        </svg>
+      )
+    case 'trash':
+      return (
+        <svg {...common}>
+          <path d="M4 7h16" />
+          <path d="M10 3.8h4" />
+          <path d="M6.5 7 7.3 19a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9L17.5 7" />
+          <path d="M10 10.5v6" />
+          <path d="M14 10.5v6" />
+        </svg>
+      )
+    case 'info':
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 10.5v5" />
+          <circle cx="12" cy="7.5" r="0.9" fill="currentColor" stroke="none" />
+        </svg>
+      )
+    case 'chevron-right':
+      return (
+        <svg {...common}>
+          <path d="m9 6 6 6-6 6" />
+        </svg>
+      )
+    case 'tag':
+      return (
+        <svg {...common}>
+          <path d="M20 12.5 11.5 21 3 12.5V4h8.5L20 12.5Z" />
+          <circle cx="8" cy="8" r="1.1" />
         </svg>
       )
     default:
