@@ -1,11 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { Avatar } from '../components/Avatar'
 import { Icon } from '../components/Icon'
-import {
-  AI_PITACOS,
-  getRolePresentation,
-  type AiSuggestion,
-} from '../lib/homePresentation'
+import { getRolePresentation } from '../lib/homePresentation'
 import type { Profile, RoleWithPlace } from '../lib/storage'
 
 type HomeViewProps = {
@@ -73,8 +69,6 @@ export function HomeView({
   onGoToSuggest,
   onOpenDetails,
 }: HomeViewProps) {
-  const [aiIndex, setAiIndex] = useState(0)
-
   const profileByName = useMemo(() => {
     const map = new Map<string, Profile>()
     for (const profile of profiles) map.set(profile.name, profile)
@@ -120,27 +114,6 @@ export function HomeView({
     return source.filter((role) => !hero || role.id !== hero.id).slice(0, 6)
   }, [hero, roles, sinceMonth, upcoming])
 
-  const suggesters = useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const role of roles) {
-      counts.set(role.suggestedBy, (counts.get(role.suggestedBy) ?? 0) + 1)
-    }
-
-    return Array.from(counts.entries())
-      .map(([name, suggestionsCount]) => ({
-        name,
-        suggestionsCount,
-        profile: profileByName.get(name),
-      }))
-      .sort((a, b) => b.suggestionsCount - a.suggestionsCount || a.name.localeCompare(b.name))
-  }, [profileByName, roles])
-
-  const suggestionsThisMonth = roles.filter(
-    (role) => new Date(role.createdAt).getTime() >= sinceMonth,
-  ).length
-  const chosenCount = roles.filter((role) => role.stage !== 'suggested').length
-  const aiSuggestion: AiSuggestion = AI_PITACOS[aiIndex % AI_PITACOS.length]
-
   return (
     <div className="home-mobile">
       <HomeHeader onCreate={onGoToSuggest} />
@@ -171,9 +144,9 @@ export function HomeView({
         </div>
       )}
 
-      <section className="home-block">
+      <section className="home-block home-suggestions">
         <div className="home-block__header">
-          <div>
+          <div className="home-suggestions__copy">
             <div className="home-block__eyebrow">Sugestões do mês</div>
             <h2 className="home-block__title">Ideias para o próximo encontro</h2>
           </div>
@@ -203,70 +176,6 @@ export function HomeView({
           </div>
         )}
       </section>
-
-      <AiSuggestionCard
-        suggestion={aiSuggestion}
-        onRefresh={() => setAiIndex((current) => current + 1)}
-      />
-
-      <section className="home-block">
-        <div className="home-block__header">
-          <div>
-            <div className="home-block__eyebrow">Quem já sugeriu</div>
-            <h2 className="home-block__title">A turma que puxou ideias</h2>
-          </div>
-        </div>
-
-        {suggesters.length === 0 ? (
-          <div className="home-empty home-empty--soft">
-            <div className="home-empty__text">
-              Assim que alguém sugerir um rolê, aparece aqui.
-            </div>
-          </div>
-        ) : (
-          <div className="suggester-strip" aria-label="Quem já sugeriu">
-            {suggesters.map(({ name, profile, suggestionsCount }) => (
-              <div className="suggester-pill" key={name}>
-                <Avatar
-                  name={profile?.displayName ?? name}
-                  photoUrl={profile?.photoUrl}
-                  size="sm"
-                />
-                <div className="suggester-pill__body">
-                  <strong>{profile?.displayName ?? name}</strong>
-                  <span>
-                    {suggestionsCount} {suggestionsCount === 1 ? 'sugestão' : 'sugestões'}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="home-block">
-        <div className="home-block__header">
-          <div>
-            <div className="home-block__eyebrow">Resumo</div>
-            <h2 className="home-block__title">Visão rápida do app</h2>
-          </div>
-        </div>
-
-        <div className="summary-grid">
-          <div className="summary-card">
-            <span className="summary-card__label">Amigos</span>
-            <strong>{profiles.length}</strong>
-          </div>
-          <div className="summary-card">
-            <span className="summary-card__label">Sugestões do mês</span>
-            <strong>{suggestionsThisMonth}</strong>
-          </div>
-          <div className="summary-card">
-            <span className="summary-card__label">Rolê escolhido</span>
-            <strong>{chosenCount}</strong>
-          </div>
-        </div>
-      </section>
     </div>
   )
 }
@@ -279,9 +188,6 @@ function HomeHeader({ onCreate }: HomeHeaderProps) {
   return (
     <header className="home-header">
       <div className="home-header__brand">
-        <span className="home-header__brand-mark" aria-hidden="true">
-          Ay
-        </span>
         <span className="home-header__brand-name">Amigos yTubers Rolês</span>
       </div>
 
@@ -309,40 +215,44 @@ function FeaturedRoleCard({
   onOpen,
 }: FeaturedRoleCardProps) {
   const suggester = profileByName.get(role.suggestedBy)
+  const suggesterName = suggester?.displayName ?? role.suggestedBy
 
   return (
     <article className="spotlight-card">
       <div className="spotlight-card__media">
         {role.place?.photoUrl ? (
-          <img src={role.place.photoUrl} alt={role.place.name} />
+          <img src={role.place.photoUrl} alt={role.title} />
         ) : (
           <div className="spotlight-card__placeholder">{coverLetters(role.title)}</div>
         )}
+
+        <span className="spotlight-card__badge">PRÓXIMO ROLÊ</span>
       </div>
 
       <div className="spotlight-card__body">
-        <span className="spotlight-card__eyebrow">Próximo rolê</span>
-        <h2 className="spotlight-card__title">{role.title}</h2>
+        <div className="spotlight-card__content">
+          <h2 className="spotlight-card__title">{role.title}</h2>
 
-        <div className="spotlight-card__date">
-          <Icon name="calendar" size={14} />
-          <span>{shortDate(role.date)}</span>
+          <div className="spotlight-card__date">
+            <span className="spotlight-card__meta-icon" aria-hidden="true">
+              <Icon name="calendar" size={13} />
+            </span>
+            <span>{shortDate(role.date)}</span>
+          </div>
         </div>
 
-        <div className="spotlight-card__suggester">
-          <Avatar
-            name={suggester?.displayName ?? role.suggestedBy}
-            photoUrl={suggester?.photoUrl}
-            size="xs"
-          />
-          <span>
-            Sugerido por <strong>{suggester?.displayName ?? role.suggestedBy}</strong>
-          </span>
-        </div>
+        <div className="spotlight-card__footer">
+          <div className="spotlight-card__suggester">
+            <Avatar name={suggesterName} photoUrl={suggester?.photoUrl} size="xs" />
+            <span>
+              <strong>{suggesterName}</strong> sugeriu
+            </span>
+          </div>
 
-        <button type="button" className="btn btn--secondary btn--block" onClick={onOpen}>
-          Ver detalhes
-        </button>
+          <button type="button" className="btn spotlight-card__button" onClick={onOpen}>
+            Ver detalhes
+          </button>
+        </div>
       </div>
     </article>
   )
@@ -362,6 +272,7 @@ function MonthlySuggestionCard({
   onOpen,
 }: MonthlySuggestionCardProps) {
   const suggester = profileByName.get(role.suggestedBy)
+  const suggesterName = suggester?.displayName ?? role.suggestedBy
   const status = computeStatus(role, totalFriends)
   const presentation = getRolePresentation(role)
 
@@ -377,9 +288,11 @@ function MonthlySuggestionCard({
 
       <div className="monthly-card__body">
         <div className="monthly-card__badges">
-          <span className="chip chip--sm chip--primary">{presentation.kind}</span>
+          <span className="chip chip--sm chip--primary monthly-card__chip">
+            {presentation.kind}
+          </span>
           <span
-            className={`chip chip--sm ${
+            className={`chip chip--sm monthly-card__chip ${
               status.tone === 'mint' ? 'chip--mint' : 'chip--sun'
             }`}
           >
@@ -391,63 +304,22 @@ function MonthlySuggestionCard({
 
         <div className="monthly-card__meta">
           <span>
-            <Icon name="pin" size={13} />
+            <Icon name="pin" size={11} />
             {presentation.locationShort}
           </span>
-          <span>{presentation.priceBand}</span>
         </div>
 
         <div className="monthly-card__footer">
           <span className="monthly-card__author">
             <Avatar
-              name={suggester?.displayName ?? role.suggestedBy}
+              name={suggesterName}
               photoUrl={suggester?.photoUrl}
               size="xs"
             />
-            <span>{suggester?.displayName ?? role.suggestedBy}</span>
+            <span>{suggesterName}</span>
           </span>
-
-          <span className="monthly-card__date">{shortDate(role.date)}</span>
         </div>
       </div>
     </button>
-  )
-}
-
-type AiSuggestionCardProps = {
-  suggestion: AiSuggestion
-  onRefresh: () => void
-}
-
-function AiSuggestionCard({ suggestion, onRefresh }: AiSuggestionCardProps) {
-  return (
-    <section className="ai-pitaco">
-      <div className="ai-pitaco__header">
-        <span className="ai-pitaco__icon" aria-hidden="true">
-          <Icon name="sparkle" size={16} />
-        </span>
-        <div>
-          <div className="home-block__eyebrow">Pitaco da IA</div>
-          <h2 className="home-block__title home-block__title--compact">
-            {suggestion.title}
-          </h2>
-        </div>
-      </div>
-
-      <p className="ai-pitaco__text">{suggestion.suggestion}</p>
-
-      <div className="ai-pitaco__tags">
-        {suggestion.tags.map((tag) => (
-          <span className="chip chip--sm chip--accent" key={tag}>
-            {tag}
-          </span>
-        ))}
-      </div>
-
-      <button type="button" className="btn btn--secondary btn--block" onClick={onRefresh}>
-        <Icon name="sparkle" size={15} />
-        Gerar outra ideia
-      </button>
-    </section>
   )
 }

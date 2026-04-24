@@ -1,18 +1,19 @@
-// ── Meus Lugares (lista privada, por usuário) ──────────────────────
-// Armazenado em localStorage. Ideias que só você vê até decidir virar
-// sugestão pro grupo via "usar como sugestão".
+// Meus Lugares (lista privada, por usuario)
+// Armazenado em localStorage. Ideias que so voce ve ate decidir virar
+// sugestao pro grupo via "usar como sugestao".
 
 export type SavedPlace = {
   id: string
   owner: string
   name: string
   description: string
-  kind: string // ex.: 'bar', 'restaurante', 'rolê', 'passeio'
+  kind: string // ex.: 'bar', 'restaurante', 'role', 'passeio'
   city: string
   neighborhood: string
   priceBand: '' | '$' | '$$' | '$$$' | '$$$$'
   photoUrl: string
   note: string
+  linkedPlaceId: string
   createdAt: string
 }
 
@@ -53,6 +54,7 @@ function normalizeSavedPlace(value: unknown): SavedPlace | null {
     priceBand: VALID_PRICE_BANDS.has(priceBand) ? priceBand : '',
     photoUrl: textValue(record.photoUrl),
     note: textValue(record.note),
+    linkedPlaceId: textValue(record.linkedPlaceId),
     createdAt: textValue(record.createdAt) || new Date(0).toISOString(),
   }
 }
@@ -81,20 +83,23 @@ function uid() {
 
 export function listSavedPlaces(owner: string): Array<SavedPlace> {
   return readAll()
-    .filter((p) => p.owner === owner)
+    .filter((place) => place.owner === owner)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 }
 
 export function getSavedPlace(id: string): SavedPlace | null {
-  return readAll().find((p) => p.id === id) ?? null
+  return readAll().find((place) => place.id === id) ?? null
 }
 
 export function createSavedPlace(
-  input: Omit<SavedPlace, 'id' | 'createdAt'>,
+  input: Omit<SavedPlace, 'id' | 'createdAt' | 'linkedPlaceId'> & {
+    linkedPlaceId?: string
+  },
 ): SavedPlace {
   const all = readAll()
   const place: SavedPlace = {
     ...input,
+    linkedPlaceId: input.linkedPlaceId ?? '',
     id: uid(),
     createdAt: new Date().toISOString(),
   }
@@ -107,14 +112,14 @@ export function updateSavedPlace(
   patch: Partial<Omit<SavedPlace, 'id' | 'owner' | 'createdAt'>>,
 ): SavedPlace | null {
   const all = readAll()
-  const idx = all.findIndex((p) => p.id === id)
-  if (idx < 0) return null
-  const next = { ...all[idx], ...patch }
-  all[idx] = next
+  const index = all.findIndex((place) => place.id === id)
+  if (index < 0) return null
+  const next = { ...all[index], ...patch }
+  all[index] = next
   writeAll(all)
   return next
 }
 
 export function deleteSavedPlace(id: string) {
-  writeAll(readAll().filter((p) => p.id !== id))
+  writeAll(readAll().filter((place) => place.id !== id))
 }

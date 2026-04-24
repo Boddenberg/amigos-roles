@@ -51,11 +51,6 @@ function coverLetters(name: string) {
     .join('')
 }
 
-function previewText(text: string, limit = 110) {
-  if (text.length <= limit) return text
-  return `${text.slice(0, limit).trim()}...`
-}
-
 export function MyPlacesView({
   currentUser,
   onToast,
@@ -107,14 +102,13 @@ export function MyPlacesView({
           <span className="home-block__eyebrow">Lista privada</span>
           <h2 className="places-header__title">Meus lugares</h2>
           <p className="places-header__text">
-            Guarde ideias so suas e transforme uma delas em sugestao so quando
-            decidir.
+            Guarde ideias so suas e transforme uma delas em sugestao quando decidir.
           </p>
         </div>
 
         <button
           type="button"
-          className="btn btn--primary btn--sm places-header__action"
+          className="btn btn--primary places-header__action"
           onClick={handleCreateClick}
         >
           <Icon name="plus" size={15} />
@@ -129,7 +123,7 @@ export function MyPlacesView({
         <div className="places-private-banner__copy">
           <strong>So voce ve esta lista</strong>
           <span>
-            Nada daqui aparece para o grupo ate voce tocar em Usar como sugestao.
+            Nada daqui aparece para o grupo ate voce tocar em "Usar como sugestao".
           </span>
         </div>
       </section>
@@ -139,7 +133,7 @@ export function MyPlacesView({
           <div className="home-empty__icon" aria-hidden="true">
             <Icon name="bookmark" size={24} />
           </div>
-          <div className="home-empty__title">Sua lista privada ainda esta vazia</div>
+          <div className="home-empty__title">Sua lista privada ainda esta vazia.</div>
           <div className="home-empty__text">
             Salve lugares, ideias e referencias para nao depender da memoria na
             hora de sugerir algo para a turma.
@@ -206,98 +200,120 @@ function SavedPlaceCard({
   onDeleteCancel,
   onUseAsSuggestion,
 }: SavedPlaceCardProps) {
+  const [showMenu, setShowMenu] = useState(false)
+
+  function handleEditClick() {
+    setShowMenu(false)
+    onEdit()
+  }
+
+  function handleDeleteClick() {
+    setShowMenu(false)
+    onDeleteRequest()
+  }
+
   return (
     <article className="saved-place-card">
-      <div className="saved-place-card__media">
-        {place.photoUrl ? (
-          <img src={place.photoUrl} alt={place.name} />
-        ) : (
-          <div className="saved-place-card__placeholder">{coverLetters(place.name)}</div>
-        )}
+      <div className="saved-place-card__main">
+        <div className="saved-place-card__media">
+          {place.photoUrl ? (
+            <img src={place.photoUrl} alt={place.name} />
+          ) : (
+            <div className="saved-place-card__placeholder">{coverLetters(place.name)}</div>
+          )}
+        </div>
+
+        <div className="saved-place-card__body">
+          <div className="saved-place-card__topline">
+            <div className="saved-place-card__badges">
+              <span className="chip chip--sm chip--primary">
+                {place.kind || 'Sem tipo'}
+              </span>
+              <span className="chip chip--sm">{priceLabel(place.priceBand)}</span>
+            </div>
+
+            <div className="saved-place-card__menu-anchor">
+              <button
+                type="button"
+                className="saved-place-card__menu-button"
+                onClick={() => setShowMenu((current) => !current)}
+                aria-label="Abrir acoes"
+                aria-expanded={showMenu}
+              >
+                <Icon name="more-horizontal" size={18} />
+              </button>
+
+              {showMenu ? (
+                <div className="saved-place-card__menu" role="menu">
+                  <button
+                    type="button"
+                    className="saved-place-card__menu-item"
+                    onClick={handleEditClick}
+                  >
+                    <Icon name="edit" size={15} />
+                    Editar
+                  </button>
+                  <button
+                    type="button"
+                    className="saved-place-card__menu-item saved-place-card__menu-item--danger"
+                    onClick={handleDeleteClick}
+                  >
+                    <Icon name="trash" size={15} />
+                    Remover
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="saved-place-card__copy">
+            <h3 className="saved-place-card__title">{place.name}</h3>
+          </div>
+
+          <div className="saved-place-card__meta">
+            <span>
+              <Icon name="pin" size={13} />
+              {locationLabel(place)}
+            </span>
+          </div>
+        </div>
       </div>
 
-      <div className="saved-place-card__body">
-        <div className="saved-place-card__badges">
-          <span className="chip chip--sm chip--primary">
-            {place.kind || 'Sem tipo'}
-          </span>
-          <span className="chip chip--sm">{priceLabel(place.priceBand)}</span>
-          <span className="chip chip--sm chip--accent">Privado</span>
-        </div>
+      <div className="saved-place-card__actions">
+        <button
+          type="button"
+          className="btn btn--primary btn--block saved-place-card__suggest"
+          onClick={onUseAsSuggestion}
+        >
+          <Icon name="sparkle" size={15} />
+          Usar como sugestao
+        </button>
+      </div>
 
-        <div className="saved-place-card__copy">
-          <h3 className="saved-place-card__title">{place.name}</h3>
-          {place.description ? (
-            <p className="saved-place-card__description">
-              {previewText(place.description, 120)}
-            </p>
-          ) : null}
-        </div>
-
-        <div className="saved-place-card__meta">
-          <span>
-            <Icon name="pin" size={13} />
-            {locationLabel(place)}
-          </span>
-        </div>
-
-        {place.note ? (
-          <div className="saved-place-card__note">
-            <span className="saved-place-card__note-label">Observacao pessoal</span>
-            <p>{previewText(place.note, 140)}</p>
-          </div>
-        ) : null}
-
-        <div className="saved-place-card__actions">
-          <button
-            type="button"
-            className="btn btn--primary btn--block"
-            onClick={onUseAsSuggestion}
-          >
-            Usar como sugestao
-          </button>
-
-          <div className="saved-place-card__secondary-actions">
-            <button type="button" className="btn btn--secondary btn--sm" onClick={onEdit}>
-              <Icon name="edit" size={14} />
-              Editar
+      {isDeletePending ? (
+        <div className="saved-place-card__danger">
+          <p>
+            Remover este lugar da sua lista privada? Isso nao envia nada para o
+            grupo, so apaga o item salvo.
+          </p>
+          <div className="saved-place-card__danger-actions">
+            <button
+              type="button"
+              className="btn btn--secondary btn--sm"
+              onClick={onDeleteCancel}
+            >
+              Cancelar
             </button>
             <button
               type="button"
-              className="btn btn--ghost btn--sm btn--danger"
-              onClick={onDeleteRequest}
+              className="btn btn--danger btn--sm"
+              onClick={onDeleteConfirm}
             >
-              <Icon name="close" size={14} />
-              Remover
+              Confirmar remocao
             </button>
           </div>
         </div>
-
-        {isDeletePending ? (
-          <div className="saved-place-card__danger">
-            <p>
-              Remover este lugar da sua lista privada? Isso nao envia nada para o
-              grupo, so apaga o item salvo.
-            </p>
-            <div className="saved-place-card__danger-actions">
-              <button
-                type="button"
-                className="btn btn--secondary btn--sm"
-                onClick={onDeleteCancel}
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                className="btn btn--danger btn--sm"
-                onClick={onDeleteConfirm}
-              >
-                Confirmar remocao
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </div>
+      ) : null}
     </article>
   )
 }
@@ -343,7 +359,10 @@ function SavedPlaceSheet({
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault()
-    if (!name.trim()) return onToast('Da um nome para esse lugar.', 'error')
+    if (!name.trim()) {
+      onToast('Da um nome para esse lugar.', 'error')
+      return
+    }
 
     setSaving(true)
     try {
@@ -418,7 +437,7 @@ function SavedPlaceSheet({
                 ) : (
                   <span className="photo-picker__empty">
                     <Icon name="image" size={20} />
-                    Toque para escolher uma foto
+                    Toque para escolher uma foto.
                   </span>
                 )}
                 <input type="file" accept="image/*" onChange={handlePhoto} />
@@ -431,7 +450,7 @@ function SavedPlaceSheet({
                 id="sp-name"
                 className="input"
                 type="text"
-                placeholder="Ex.: Jantar no bar com varanda"
+                placeholder="Jantar no bar com varanda"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
               />
@@ -442,7 +461,7 @@ function SavedPlaceSheet({
               <textarea
                 id="sp-description"
                 className="textarea"
-                placeholder="Ex.: lugar bom para conversar, comer e nao depender de reserva complicada."
+                placeholder="Lugar bom para conversar, comer e nao depender de reserva complicada."
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
               />
@@ -484,7 +503,7 @@ function SavedPlaceSheet({
                   id="sp-neighborhood"
                   className="input"
                   type="text"
-                  placeholder="Ex.: Pinheiros"
+                  placeholder="Pinheiros"
                   value={neighborhood}
                   onChange={(event) => setNeighborhood(event.target.value)}
                 />
@@ -516,7 +535,7 @@ function SavedPlaceSheet({
               <textarea
                 id="sp-note"
                 className="textarea"
-                placeholder="Ex.: lembrar da varanda, do horario mais vazio ou do motivo de ter salvo esse lugar."
+                placeholder="Lembrar da varanda, do horario mais vazio ou do motivo de ter salvo esse lugar."
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
               />

@@ -15,14 +15,14 @@ type Props = {
 
 type Status = { label: string; tone: 'mint' | 'sun' }
 
-function formatFullDate(iso: string) {
+function formatCompactDate(iso: string) {
   if (!iso) return ''
   const [year, month, day] = iso.split('-').map(Number)
   const date = new Date(year, (month || 1) - 1, day || 1)
   return date.toLocaleDateString('pt-BR', {
-    weekday: 'long',
+    weekday: 'short',
     day: 'numeric',
-    month: 'long',
+    month: 'short',
   })
 }
 
@@ -76,6 +76,18 @@ export function RoleDetailsModal({
       <div className="sheet role-sheet" role="dialog" aria-modal="true" aria-label="Detalhes do rolê">
         <div className="sheet__handle" aria-hidden="true" />
 
+        <div className="role-sheet__topbar">
+          <button
+            type="button"
+            className="role-sheet__close"
+            onClick={onClose}
+            aria-label="Fechar"
+          >
+            <Icon name="close" size={17} />
+          </button>
+          <span>Detalhes</span>
+        </div>
+
         <div className="role-sheet__hero">
           {role.place?.photoUrl ? (
             <img src={role.place.photoUrl} alt={role.place.name} />
@@ -83,39 +95,34 @@ export function RoleDetailsModal({
             <div className="role-sheet__hero-placeholder">{coverLetters(role.title)}</div>
           )}
 
-          <button
-            type="button"
-            className="role-sheet__close"
-            onClick={onClose}
-            aria-label="Fechar"
-          >
-            <Icon name="close" size={18} />
-          </button>
+          <span className="role-sheet__hero-badge">{presentation.kind}</span>
         </div>
 
         <div className="role-sheet__content">
-          <div className="role-sheet__header">
-            <div>
-              <div className="role-sheet__eyebrow">Detalhes do rolê</div>
-              <h2 className="role-sheet__title">{role.title}</h2>
+          <section className="role-sheet__main">
+            <div className="role-sheet__main-top">
+              <span className="role-sheet__eyebrow">Detalhes do rolê</span>
+              <span className={`role-sheet__status role-sheet__status--${status.tone}`}>
+                {status.label}
+              </span>
             </div>
-
-            <span
-              className={`chip chip--sm ${
-                status.tone === 'mint' ? 'chip--mint' : 'chip--sun'
-              }`}
-            >
-              {status.label}
-            </span>
-          </div>
-
-          <p className="role-sheet__description">{presentation.cleanDescription}</p>
+            <h2 className="role-sheet__title">{role.title}</h2>
+            <p className="role-sheet__description">{presentation.cleanDescription}</p>
+          </section>
 
           <div className="role-sheet__grid">
             <DetailField label="Tipo" value={presentation.kind} />
-            <DetailField label="Faixa de preço" value={presentation.priceLabel} />
-            <DetailField label="Local" value={presentation.locationLabel} />
-            <DetailField label="Data" value={formatFullDate(role.date)} />
+            <DetailField
+              label="Faixa"
+              value={presentation.priceBand}
+              helper={presentation.priceLabel}
+            />
+            <DetailField
+              label="Local"
+              value={presentation.locationShort}
+              helper={role.place?.name}
+            />
+            <DetailField label="Data" value={formatCompactDate(role.date)} />
             <DetailField
               label="Quem sugeriu"
               value={suggester?.displayName ?? role.suggestedBy}
@@ -126,7 +133,8 @@ export function RoleDetailsModal({
             />
             <DetailField
               label="Status"
-              value={`${status.label} · ${role.confirmations.length}/${totalFriends} topam`}
+              value={`${role.confirmations.length}/${totalFriends} topam`}
+              helper={status.label}
             />
           </div>
 
@@ -187,13 +195,14 @@ export function RoleDetailsModal({
 type DetailFieldProps = {
   label: string
   value: string
+  helper?: string
   avatar?: {
     name: string
     photoUrl?: string
   }
 }
 
-function DetailField({ label, value, avatar }: DetailFieldProps) {
+function DetailField({ label, value, helper, avatar }: DetailFieldProps) {
   return (
     <div className="role-sheet__field">
       <span className="role-sheet__field-label">{label}</span>
@@ -205,6 +214,7 @@ function DetailField({ label, value, avatar }: DetailFieldProps) {
       ) : (
         <strong>{value}</strong>
       )}
+      {helper ? <span className="role-sheet__field-helper">{helper}</span> : null}
     </div>
   )
 }
