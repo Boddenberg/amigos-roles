@@ -2,9 +2,10 @@
 
 Home social e minimalista para um grupo de amigos visualizar rapidamente:
 
-- qual e o proximo role
-- quais sao as sugestoes do mes
-- quem ja participou sugerindo
+- qual é o próximo rolê
+- quais são as sugestões do mês
+- quem já participou sugerindo
+- os lugares salvos pelo grupo
 - um pitaco divertido vindo da IA
 
 ## Stack
@@ -13,28 +14,33 @@ Home social e minimalista para um grupo de amigos visualizar rapidamente:
 - Vite
 - TypeScript
 - Supabase via `@supabase/supabase-js`
-- deploy estatico na Railway
+- deploy estático na Railway
 
-## O que esse MVP entrega
+## O que o app entrega hoje
 
-- hero principal com CTA para sugerir role
-- destaque do proximo encontro
-- cards elegantes para as sugestoes do mes
-- painel com participantes do grupo
-- card especial de sugestao da IA
-- formulario leve para enviar novas ideias ao Supabase
-- fallback para dados mockados quando o banco esta vazio
-- leitura de perfis reais para a home compartilhada
-- base pronta para login persistente no celular
+- login por nome e código, com sessão persistida no navegador
+- navegação inferior com quatro abas: Home, Sugerir, Meus Lugares e Perfil
+- hero principal com CTA para sugerir rolê e destaque do próximo encontro
+- cards das sugestões do mês, com modal de detalhes
+- confirmação de presença por rolê
+- lugares salvos, com foto comprimida no envio
+- perfil editável, com avatar e dados do participante
+- card especial de sugestão da IA
+- fallback para dados mockados quando o banco está vazio
 
 ## Estrutura importante
 
-- `src/App.tsx`: orquestra a home e integra com o Supabase
-- `src/components/`: cards e blocos reutilizaveis da home
-- `src/data/home.ts`: dados mockados, mapeamentos e helpers visuais
-- `src/lib/`: configuracao e acesso ao Supabase
-- `supabase/role_entries.sql`: schema idempotente da tabela
-- `supabase/profiles.sql`: perfis, dados privados e bucket de avatar
+- `src/App.tsx`: orquestra o estado de sessão e alterna entre as abas
+- `src/views/`: uma tela por aba — `HomeView`, `SuggestView`, `MyPlacesView` e `ProfileView`
+- `src/components/`: blocos reutilizáveis — `Avatar`, `BottomNav`, `DatePicker`, `Icon`, `LoginScreen` e `RoleDetailsModal`
+- `src/lib/storage.ts`: acesso ao Supabase (rolês, perfis, lugares e confirmações)
+- `src/lib/auth.ts`: login local e sessão
+- `src/lib/savedPlaces.ts`: lugares salvos
+- `src/lib/photos.ts`: compressão de imagem antes do upload
+- `src/lib/homePresentation.ts`: mapeamentos e helpers visuais da home
+- `src/lib/supabase.ts`: configuração do cliente
+- `supabase/role_entries.sql` e `supabase/profiles.sql`: schemas idempotentes
+- `supabase/migrations/`: migrações incrementais
 
 ## Env vars
 
@@ -46,9 +52,19 @@ VITE_SUPABASE_TABLE=role_entries
 VITE_GROUP_SLUG=main
 ```
 
+## Rodando local
+
+```bash
+npm install
+cp .env.example .env
+npm run dev
+```
+
+Outros scripts: `npm run build`, `npm run preview`, `npm run lint`.
+
 ## Banco
 
-O schema de `role_entries` agora suporta melhor o contexto de grupo:
+O schema de `role_entries` suporta o contexto de grupo:
 
 - `suggested_by`
 - `role_type`
@@ -56,27 +72,28 @@ O schema de `role_entries` agora suporta melhor o contexto de grupo:
 - `stage`
 - `cover_label`
 
-Sem quebrar a estrutura anterior do projeto.
+Os perfis ficam divididos em duas camadas, para não expor dado sensível na home compartilhada:
 
-## Perfis e login
+- `profiles`: parte visível — nome, apelido, bio, foto e contexto leve
+- `profile_private`: aniversário, endereço e notas privadas
 
-Para nao ficar chato no celular, o caminho mais natural aqui e:
+Há também um bucket `profile-avatars` para as fotos.
 
-- Supabase Auth com magic link por e-mail ou OTP
-- sessao persistida no navegador do celular
-- criacao automatica do perfil quando o usuario entra pela primeira vez
+## Login
 
-O projeto ja ficou preparado para isso em duas camadas:
+Hoje o login é local: `src/lib/auth.ts` valida nome e código contra um mapa fixo e guarda a sessão no `localStorage`. Foi o caminho mais rápido para o grupo usar no celular sem fricção.
 
-- `profiles`: parte visivel da home, com nome, apelido, bio, foto e contexto leve
-- `profile_private`: aniversario, endereco e notas privadas para nao deixar dado sensivel exposto na home
+> **Atenção:** como este repositório é público, os códigos ficam visíveis no código-fonte. Isso é aceitável para uma home de amigos sem dado sensível, mas não deve ser usado para nada além disso.
 
-Tambem deixei um bucket `profile-avatars` pronto para as fotos.
+O passo natural de evolução continua sendo o Supabase Auth:
 
-## Proximos passos que fazem sentido
+- magic link por e-mail ou OTP
+- sessão persistida pelo próprio Supabase
+- criação automática do perfil no primeiro acesso
 
-- votacao leve por card
-- confirmacao de presenca
-- historico com fotos e comentarios
-- filtro por mes e por tipo de role
-# amigos-roles
+## Próximos passos que fazem sentido
+
+- votação leve por card
+- histórico com fotos e comentários
+- filtro por mês e por tipo de rolê
+- migrar o login para Supabase Auth
